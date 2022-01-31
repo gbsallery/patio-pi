@@ -12,7 +12,7 @@ async fn main() -> std::io::Result<()> {
             .service(on)
             .service(leds)
     })
-        .bind("127.0.0.1:8080")?
+        .bind("0.0.0.0:8080")?
         .run()
         .await
 }
@@ -58,3 +58,7 @@ async fn on(_req_body: String) -> impl Responder {
 
     HttpResponse::Ok()
 }
+
+// TODO: Cross-compile
+// TODO: scan a pixel, animated
+// TODO: read a PNG
