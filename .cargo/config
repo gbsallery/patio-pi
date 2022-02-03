@@ -1,4 +1,4 @@
-[target.arm-unknown-linux-musleabi]
+[target.arm-unknown-linux-musleabihf]
 linker = "arm-linux-gnueabihf-ld"
 [target.x86_64-linux-musleabi]
 linker = "x86_64-linux-gnueabihf-ld"
