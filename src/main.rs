@@ -4,45 +4,46 @@
 
 use std::process::Command;
 use std::format;
-use image::{GenericImage, GenericImageView, ImageBuffer, Pixel, Rgb, RgbImage};
+use image::{ImageBuffer, Rgb, RgbImage};
 use std::{thread, time};
 use rocket::Data;
 use rocket::config::{Config, Environment};
-use std::io::Cursor;
-use image::ImageFormat;
-use image::io::Reader;
+use rocket::http::RawStr;
+
 
 #[get("/")]
 fn world() -> &'static str {
-    "Hello, world!"
+    "Patio Pi server up and running"
 }
 
 #[get("/off")]
-fn off() -> String {
-    let mut pixleds = Command::new("./rpi_pixleds");
-    pixleds.arg("-n");
-    pixleds.arg("61");
-    let pixels = std::iter::repeat("000000,").take(80).collect::<String>();
-    pixleds.arg(&pixels);
-    pixleds.arg(&pixels);
-
-    pixleds.output().expect("Failed to invoke rpi_pixleds");
-
-    format!("{:#?}", pixleds)
+fn off() -> &'static str {
+    let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
+            image::Rgb([0u8,0u8,0u8])
+    });
+    animate(img);
+    "Off"
 }
 
 #[get("/on")]
-fn on() -> String {
-    let mut pixleds = Command::new("./rpi_pixleds");
-    pixleds.arg("-n");
-    pixleds.arg("61");
-    let pixels = std::iter::repeat("555555,").take(80).collect::<String>();
-    pixleds.arg(&pixels);
-    pixleds.arg(&pixels);
+fn on() -> &'static str {
+    let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
+            image::Rgb([0x55u8,0x55u8,0u8])
+    });
+    animate(img);
+    "On"
+}
 
-    pixleds.output().expect("Failed to invoke rpi_pixleds");
-
-    format!("{:#?}", pixleds)
+#[get("/solid?<rgb>")]
+fn solid(rgb: &RawStr) -> &str {
+    let r= u8::from_str_radix(&rgb[0..2], 16).unwrap();
+    let g = u8::from_str_radix(&rgb[2..4], 16).unwrap();
+    let b = u8::from_str_radix(&rgb[4..6], 16).unwrap();
+    let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
+            image::Rgb([r,g,b])
+    });
+    animate(img);
+    rgb
 }
 
 #[get("/leds")]
@@ -91,23 +92,12 @@ fn main() {
         .address("0.0.0.0")
         .finalize().unwrap();
 
-    rocket::custom(config).mount("/", routes![world,on,off,leds,image]).launch();
+    rocket::custom(config).mount("/", routes![world,on,off,solid,leds,image]).launch();
 }
-
-/*
-    let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 60, |x, y| {
-        if (x+y) % 3 == 0 {
-            image::Rgb([85u8,0u8,85u8])
-        } else {
-            image::Rgb([0u8,0u8,0u8])
-        }
-    });
-*/
 
 // RHS: 61 LEDs from right end
 // LHS: Unknown, not working well
 
-// TODO: Solid colour
 // TODO: Playback from buffer, in a thread
 // TODO: scan a pixel, animated
 // TODO: Intensity clamp
