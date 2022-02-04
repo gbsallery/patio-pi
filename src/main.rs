@@ -1,52 +1,76 @@
+#![feature(proc_macro_hygiene, decl_macro)]
+
+#[macro_use] extern crate rocket;
+
 use std::process::Command;
 use std::format;
-use actix_web::{web, get, post, App, HttpResponse, HttpServer, Responder};
 use image::{GenericImage, GenericImageView, ImageBuffer, Pixel, Rgb, RgbImage};
 use std::{thread, time};
-
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
-    println!("Patio Pi");
-/*
-    let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 60, |x, y| {
-        if (x+y) % 3 == 0 {
-            image::Rgb([85u8,0u8,85u8])
-        } else {
-            image::Rgb([0u8,0u8,0u8])
-        }
-    });
-*/
-    let img = image::open("test.png").unwrap().to_rgb8();
-
-    let data = web::Data::new(img);
-
-    HttpServer::new(move || {
-        App::new()
-            .app_data(data.clone())
-            .service(hello)
-            .service(off)
-            .service(on)
-            .service(leds)
-    })
-        .bind("0.0.0.0:8080")?
-        .run()
-        .await
-}
+use rocket::Data;
+use rocket::config::{Config, Environment};
+use std::io::Cursor;
+use image::ImageFormat;
+use image::io::Reader;
 
 #[get("/")]
-async fn hello() -> impl Responder {
-    HttpResponse::Ok().body("Hello world!")
+fn world() -> &'static str {
+    "Hello, world!"
+}
+
+#[get("/off")]
+fn off() -> String {
+    let mut pixleds = Command::new("./rpi_pixleds");
+    pixleds.arg("-n");
+    pixleds.arg("61");
+    let pixels = std::iter::repeat("000000,").take(80).collect::<String>();
+    pixleds.arg(&pixels);
+    pixleds.arg(&pixels);
+
+    pixleds.output().expect("Failed to invoke rpi_pixleds");
+
+    format!("{:#?}", pixleds)
+}
+
+#[get("/on")]
+fn on() -> String {
+    let mut pixleds = Command::new("./rpi_pixleds");
+    pixleds.arg("-n");
+    pixleds.arg("61");
+    let pixels = std::iter::repeat("555555,").take(80).collect::<String>();
+    pixleds.arg(&pixels);
+    pixleds.arg(&pixels);
+
+    pixleds.output().expect("Failed to invoke rpi_pixleds");
+
+    format!("{:#?}", pixleds)
 }
 
 #[get("/leds")]
-async fn leds(data: web::Data<ImageBuffer<Rgb<u8>, Vec<u8>>>) -> impl Responder {
-    for r in 0..59 {
+fn leds() -> &'static str {
+    let img = image::open("test.png").unwrap().to_rgb8();
+
+    animate(img);
+    "Flash!"
+}
+
+#[post("/image", format = "any", data = "<data>")]
+fn image(data: Data) -> &'static str {
+    data.stream_to_file("/tmp/upload.png").map(|n| n.to_string()).unwrap();
+
+    let img = image::open("/tmp/upload.png").unwrap().to_rgb8();
+    animate(img);
+    "Uploaded"
+}
+
+fn animate(img: RgbImage) {
+    let (width, height) = img.dimensions();
+    for r in 0..height {
         let mut pixleds = Command::new("./rpi_pixleds");
         pixleds.arg("-n");
         pixleds.arg("61");
         let mut pixels = String::new();
-        for n in 0..60 {
-            let pixel = data.get_pixel(n, r);
+        for n in 0..width {
+            let pixel = img.get_pixel(n, r);
             pixels = pixels + &*format!("{:02X}", pixel[0]);
             pixels = pixels + &*format!("{:02X}", pixel[1]);
             pixels = pixels + &*format!("{:02X}", pixel[2]);
@@ -58,43 +82,32 @@ async fn leds(data: web::Data<ImageBuffer<Rgb<u8>, Vec<u8>>>) -> impl Responder 
         let delay = time::Duration::from_millis(20);
         thread::sleep(delay);
     }
-
-    HttpResponse::Ok()
 }
 
-#[get("/off")]
-async fn off(_req_body: String) -> impl Responder {
-    let mut pixleds = Command::new("./rpi_pixleds");
-    pixleds.arg("-n");
-    pixleds.arg("61");
-    let pixels = std::iter::repeat("000000,").take(80).collect::<String>();
-    pixleds.arg(&pixels);
-    pixleds.arg(&pixels);
+fn main() {
+    println!("Patio Pi");
 
-    pixleds.output().expect("Failed to invoke rpi_pixleds");
+    let config = Config::build(Environment::Staging)
+        .address("0.0.0.0")
+        .finalize().unwrap();
 
-    HttpResponse::Ok().body(format!("{:#?}", pixleds))
+    rocket::custom(config).mount("/", routes![world,on,off,leds,image]).launch();
 }
 
-#[get("/on")]
-async fn on(_req_body: String) -> impl Responder {
-    let mut pixleds = Command::new("./rpi_pixleds");
-    pixleds.arg("-n");
-    pixleds.arg("61");
-    let pixels = std::iter::repeat("555555,").take(80).collect::<String>();
-    pixleds.arg(&pixels);
-    pixleds.arg(&pixels);
-
-    pixleds.output().expect("Failed to invoke rpi_pixleds");
-
-    HttpResponse::Ok().body(format!("{:#?}", pixleds))
-}
+/*
+    let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 60, |x, y| {
+        if (x+y) % 3 == 0 {
+            image::Rgb([85u8,0u8,85u8])
+        } else {
+            image::Rgb([0u8,0u8,0u8])
+        }
+    });
+*/
 
 // RHS: 61 LEDs from right end
 // LHS: Unknown, not working well
 
-// TODO: read a PNG
-// TODO: upload a PNG
+// TODO: Solid colour
 // TODO: Playback from buffer, in a thread
 // TODO: scan a pixel, animated
 // TODO: Intensity clamp
