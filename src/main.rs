@@ -1,13 +1,13 @@
 use std::process::Command;
 use std::format;
 use actix_web::{web, get, post, App, HttpResponse, HttpServer, Responder};
-use image::{GenericImage, GenericImageView, ImageBuffer, Rgb, RgbImage};
+use image::{GenericImage, GenericImageView, ImageBuffer, Pixel, Rgb, RgbImage};
 use std::{thread, time};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     println!("Patio Pi");
-
+/*
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 60, |x, y| {
         if (x+y) % 3 == 0 {
             image::Rgb([85u8,0u8,85u8])
@@ -15,6 +15,8 @@ async fn main() -> std::io::Result<()> {
             image::Rgb([0u8,0u8,0u8])
         }
     });
+*/
+    let img = image::open("test.png").unwrap().to_rgb8();
 
     let data = web::Data::new(img);
 
@@ -44,13 +46,12 @@ async fn leds(data: web::Data<ImageBuffer<Rgb<u8>, Vec<u8>>>) -> impl Responder 
         pixleds.arg("61");
         let mut pixels = String::new();
         for n in 0..60 {
-            let pixel = *data.get_pixel(n, r);
+            let pixel = data.get_pixel(n, r);
             pixels = pixels + &*format!("{:02X}", pixel[0]);
             pixels = pixels + &*format!("{:02X}", pixel[1]);
             pixels = pixels + &*format!("{:02X}", pixel[2]);
             pixels = pixels + ",";
         }
-        pixleds.arg(&pixels);
         pixleds.arg(&pixels);
         pixleds.output().expect("Failed to invoke rpi_pixleds");
 
@@ -92,6 +93,11 @@ async fn on(_req_body: String) -> impl Responder {
 // RHS: 61 LEDs from right end
 // LHS: Unknown, not working well
 
+// TODO: read a PNG
+// TODO: upload a PNG
 // TODO: Playback from buffer, in a thread
 // TODO: scan a pixel, animated
-// TODO: read a PNG
+// TODO: Intensity clamp
+// TODO: Weather pattern
+// TODO: Progress bar API
+// TODO: Meater mode
