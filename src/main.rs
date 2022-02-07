@@ -11,6 +11,9 @@ use rocket::{Data, State};
 use rocket::config::{Config, Environment};
 use rocket::http::{RawStr, Status};
 
+// RHS: 61 LEDs from right end
+// LHS: Unknown, not working well (electrical issue)
+
 #[get("/")]
 fn world() -> &'static str {
     "Patio Pi server up and running"
@@ -114,11 +117,10 @@ fn main() {
         .launch();
 }
 
-// RHS: 61 LEDs from right end
-// LHS: Unknown, not working well
-
+// TODO: Plan actual lighting scenes
 // TODO: scan a pixel, animated
 // TODO: Intensity clamp
 // TODO: Weather pattern
 // TODO: Progress bar API
 // TODO: Meater mode
+// TODO: Fade between states
