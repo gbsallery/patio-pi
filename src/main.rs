@@ -20,55 +20,56 @@ fn world() -> &'static str {
 }
 
 #[get("/off")]
-fn off(animation: State<Animation>) -> &'static str {
+fn off(animation: State<Arc<Mutex<Animation>>>) -> &'static str {
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
             image::Rgb([0u8,0u8,0u8])
     });
-    *animation.0.lock().unwrap() = img;
+    animation.lock().unwrap().img = img;
     "Off"
 }
 
 #[get("/on")]
-fn on(animation: State<Animation>) -> &'static str {
+fn on(animation: State<Arc<Mutex<Animation>>>) -> &'static str {
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
             image::Rgb([0x55u8,0x55u8,0x55u8])
     });
-    *animation.0.lock().unwrap() = img;
+    animation.lock().unwrap().img = img;
     "On"
 }
 
 #[get("/solid?<rgb>")]
-fn solid(rgb: &RawStr, animation: State<Animation>) -> Status {
+fn solid(rgb: &RawStr, animation: State<Arc<Mutex<Animation>>>) -> Status {
     let r= u8::from_str_radix(&rgb[0..2], 16).unwrap();
     let g = u8::from_str_radix(&rgb[2..4], 16).unwrap();
     let b = u8::from_str_radix(&rgb[4..6], 16).unwrap();
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
             image::Rgb([r,g,b])
     });
-    *animation.0.lock().unwrap() = img;
+    animation.lock().unwrap().img = img;
     Status::Ok
 }
 
 #[get("/leds")]
-fn leds(animation: State<Animation>) -> &'static str {
+fn leds(animation: State<Arc<Mutex<Animation>>>) -> &'static str {
     let img = image::open("test.png").unwrap().to_rgb8();
 
-    *animation.0.lock().unwrap() = img;
+    animation.lock().unwrap().img = img;
     "Flash!"
 }
 
 #[post("/image", format = "any", data = "<data>")]
-fn image(data: Data, animation: State<Animation>) -> &'static str {
+fn image(data: Data, animation: State<Arc<Mutex<Animation>>>) -> &'static str {
     data.stream_to_file("/tmp/upload.png").map(|n| n.to_string()).unwrap();
 
     let img = image::open("/tmp/upload.png").unwrap().to_rgb8();
-    *animation.0.lock().unwrap() = img;
+    animation.lock().unwrap().img = img;
     "Uploaded"
 }
 
-fn animate(animation: Animation) {
+fn animate(mutex: Arc<Mutex<Animation>>) {
     loop {
-        let image = animation.0.lock().expect("Failed to aqcuire lock on animation").clone();
+        let animation = mutex.lock().expect("Failed to acquire lock on animation").clone();
+        let image = animation.img;
         let (width, height) = image.dimensions();
         for r in 0..height {
             let mut pixleds = Command::new("./rpi_pixleds");
@@ -92,7 +93,10 @@ fn animate(animation: Animation) {
 }
 
 #[derive(Clone)]
-struct Animation(Arc<Mutex<RgbImage>>);
+// struct Animation(Arc<Mutex<RgbImage>>);
+struct Animation {
+    img: RgbImage
+}
 
 fn main() {
     println!("Patio Pi");
@@ -100,7 +104,8 @@ fn main() {
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
         image::Rgb([0u8,0u8,0u8])
     });
-    let animation = Animation(Arc::new(Mutex::new(img)));
+    // let animation = Animation(Arc::new(Mutex::new(img)));
+    let animation = Arc::new(Mutex::new(Animation{img}));
 
     let animation1 = animation.clone();
     std::thread::spawn(move || {
@@ -113,7 +118,7 @@ fn main() {
 
     rocket::custom(config)
         .mount("/", routes![world,on,off,solid,leds,image])
-        .manage(animation.clone())
+        .manage(animation)
         .launch();
 }
 
