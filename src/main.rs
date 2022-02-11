@@ -29,16 +29,10 @@ fn off(animation: State<Arc<Mutex<Animation>>>) -> &'static str {
     "Off"
 }
 
-fn update_animation(animation: State<Arc<Mutex<Animation>>>, img: ImageBuffer<Rgb<u8>, Vec<u8>>) {
-    let mut guard = animation.lock().unwrap();
-    guard.img = img;
-    guard.updated = true;
-}
-
 #[get("/on")]
 fn on(animation: State<Arc<Mutex<Animation>>>) -> &'static str {
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
-            image::Rgb([0x55u8,0x55u8,0x55u8])
+            image::Rgb([0xffu8,0xffu8,0xffu8])
     });
     update_animation(animation, img);
     "On"
@@ -73,21 +67,26 @@ fn image(data: Data, animation: State<Arc<Mutex<Animation>>>) -> &'static str {
     "Uploaded"
 }
 
+fn update_animation(animation: State<Arc<Mutex<Animation>>>, img: ImageBuffer<Rgb<u8>, Vec<u8>>) {
+    let mut guard = animation.lock().unwrap();
+    guard.img = img;
+    guard.updated = true;
+}
+
+const INTENSITY_LIMIT: u32 = 61 * 255 * 3 / 4;
+
 fn animate(animation: Arc<Mutex<Animation>>) {
     loop {
         loop {
-            let mut guard = animation.lock().expect("Failed to acquire lock on animation");
-            let image = guard.img.clone();
-            guard.updated = false;
-            Mutex::unlock(guard);
+            let image = check_new_image(&animation);
             let (width, height) = image.dimensions();
-            for r in 0..height {
+            for y in 0..height {
                 let mut pixleds = Command::new("./rpi_pixleds");
                 pixleds.arg("-n");
                 pixleds.arg("61");
                 let mut pixels = String::new();
-                for n in (0..width).rev() {
-                    let pixel = image.get_pixel(n, r);
+                for x in (0..width).rev() {
+                    let pixel = image.get_pixel(x, y);
                     pixels = pixels + &*format!("{:02X}", pixel[0]);
                     pixels = pixels + &*format!("{:02X}", pixel[1]);
                     pixels = pixels + &*format!("{:02X}", pixel[2]);
@@ -104,6 +103,38 @@ fn animate(animation: Arc<Mutex<Animation>>) {
             }
         }
     }
+}
+
+fn check_new_image(animation: &Arc<Mutex<Animation>>) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
+    let mut guard = animation.lock().expect("Failed to acquire lock on animation");
+    let frame = &guard.img;
+    let mut new_frame = Default::default();
+    if guard.updated {
+        let mut peak_intensity: u32 = 0;
+        let (width, height) = frame.dimensions();
+        for y in 0..height {
+            let mut intensity: u32 = 0;
+            for x in 0..width {
+                let pixel = frame.get_pixel(x, y);
+                intensity = intensity + pixel[0] as u32 + pixel[1] as u32 + pixel[2] as u32;
+            }
+            if intensity > peak_intensity { peak_intensity = intensity }
+        }
+        new_frame =
+        if peak_intensity > INTENSITY_LIMIT {
+            let ratio = (INTENSITY_LIMIT as f64) / (peak_intensity as f64);
+            println!("Scaling intensity down to {}", ratio);
+            ImageBuffer::from_fn(width, height, |x, y| {
+                let p = frame.get_pixel(x, y);
+                image::Rgb([(p[0] as f64 * ratio) as u8, (p[1] as f64 * ratio) as u8, (p[2] as f64 * ratio) as u8])
+            })
+        } else {
+            frame.clone()
+        };
+        guard.updated = false;
+        Mutex::unlock(guard);
+    }
+    new_frame
 }
 
 #[derive(Clone)]
@@ -137,7 +168,6 @@ fn main() {
         .launch();
 }
 
-// TODO: Intensity clamp
 // TODO: Fade between states
 // TODO: scan a pixel, animated
 
