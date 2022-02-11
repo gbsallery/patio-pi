@@ -80,37 +80,39 @@ fn animate(animation: Arc<Mutex<Animation>>) {
     'animator: loop {
         let image = check_new_image(&animation);
         let (width, height) = image.dimensions();
-        for y in 0..height {
-            let guard = animation.lock().expect("Failed to acquire lock on animation");
-            if guard.updated { continue 'animator; };
-            Mutex::unlock(guard);
+        loop {
+            for y in 0..height {
+                let guard = animation.lock().expect("Failed to acquire lock on animation");
+                if guard.updated { continue 'animator; };
+                Mutex::unlock(guard);
 
-            let mut pixleds = Command::new("./rpi_pixleds");
-            pixleds.arg("-n");
-            pixleds.arg("61");
-            let mut pixels = String::new();
-            for x in (0..width).rev() {
-                let pixel = image.get_pixel(x, y);
-                pixels = pixels + &*format!("{:02X}", pixel[0]);
-                pixels = pixels + &*format!("{:02X}", pixel[1]);
-                pixels = pixels + &*format!("{:02X}", pixel[2]);
-                pixels = pixels + ",";
+                let mut pixleds = Command::new("./rpi_pixleds");
+                pixleds.arg("-n");
+                pixleds.arg("61");
+                let mut pixels = String::new();
+                for x in (0..width).rev() {
+                    let pixel = image.get_pixel(x, y);
+                    pixels = pixels + &*format!("{:02X}", pixel[0]);
+                    pixels = pixels + &*format!("{:02X}", pixel[1]);
+                    pixels = pixels + &*format!("{:02X}", pixel[2]);
+                    pixels = pixels + ",";
+                }
+                pixleds.arg(&pixels);
+                pixleds.output().expect("Failed to invoke rpi_pixleds");
+
+                let delay = time::Duration::from_millis(20);
+                thread::sleep(delay);
             }
-            pixleds.arg(&pixels);
-            pixleds.output().expect("Failed to invoke rpi_pixleds");
-
-            let delay = time::Duration::from_millis(20);
-            thread::sleep(delay);
         }
     }
 }
 
 fn check_new_image(animation: &Arc<Mutex<Animation>>) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
     let mut guard = animation.lock().expect("Failed to acquire lock on animation");
-    let mut new_frame = Default::default();
+    let new_frame;
+    let frame = &guard.img;
     if guard.updated {
         let mut peak_intensity: u32 = 0;
-        let frame = &guard.img;
         let (width, height) = frame.dimensions();
         for y in 0..height {
             let mut intensity: u32 = 0;
@@ -132,6 +134,8 @@ fn check_new_image(animation: &Arc<Mutex<Animation>>) -> ImageBuffer<Rgb<u8>, Ve
                 frame.clone()
             };
         guard.updated = false;
+    } else {
+        new_frame = frame.clone();
     }
     new_frame
 }
@@ -149,8 +153,7 @@ fn main() {
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
         image::Rgb([0u8, 0u8, 0u8])
     });
-    // let animation = Animation(Arc::new(Mutex::new(img)));
-    let animation = Arc::new(Mutex::new(Animation { img, updated: false }));
+    let animation = Arc::new(Mutex::new(Animation { img, updated: true }));
 
     let animation1 = animation.clone();
     std::thread::spawn(move || {
