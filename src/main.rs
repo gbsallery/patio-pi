@@ -26,7 +26,7 @@ fn off(animation: State<Arc<Mutex<Animation>>>) -> &'static str {
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
         image::Rgb([0u8, 0u8, 0u8])
     });
-    update_animation(animation, img);
+    update_animation(animation, img, 100);
     "Off"
 }
 
@@ -35,7 +35,7 @@ fn on(animation: State<Arc<Mutex<Animation>>>) -> &'static str {
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
         image::Rgb([0xffu8, 0xffu8, 0xffu8])
     });
-    update_animation(animation, img);
+    update_animation(animation, img, 100);
     "On"
 }
 
@@ -47,7 +47,7 @@ fn solid(rgb: &RawStr, animation: State<Arc<Mutex<Animation>>>) -> Status {
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
         image::Rgb([r, g, b])
     });
-    update_animation(animation, img);
+    update_animation(animation, img, 100);
     Status::Ok
 }
 
@@ -55,7 +55,7 @@ fn solid(rgb: &RawStr, animation: State<Arc<Mutex<Animation>>>) -> Status {
 fn leds(animation: State<Arc<Mutex<Animation>>>) -> &'static str {
     let img = image::open("test.png").unwrap().to_rgb8();
 
-    update_animation(animation, img);
+    update_animation(animation, img, 100);
     "Flash!"
 }
 
@@ -64,26 +64,56 @@ fn image(data: Data, animation: State<Arc<Mutex<Animation>>>) -> &'static str {
     data.stream_to_file("/tmp/upload.png").map(|n| n.to_string()).unwrap();
 
     let img = image::open("/tmp/upload.png").unwrap().to_rgb8();
-    update_animation(animation, img);
+    update_animation(animation, img, 100);
     "Uploaded"
 }
 
-fn update_animation(animation: State<Arc<Mutex<Animation>>>, img: ImageBuffer<Rgb<u8>, Vec<u8>>) {
+#[derive(Clone)]
+struct Animation {
+    old_img: RgbImage,
+    new_img: RgbImage,
+    transition_frames: u16,
+    updated: bool
+}
+
+const INTENSITY_LIMIT: u32 = 61 * 255 * 3 / 6;
+
+fn update_animation(animation: State<Arc<Mutex<Animation>>>, img: ImageBuffer<Rgb<u8>, Vec<u8>>, transition_frames: u16) {
     let mut guard = animation.lock().unwrap();
-    guard.img = img;
+    guard.old_img = guard.new_img.clone();
+    let mut peak_intensity: u32 = 0;
+    let (width, height) = img.dimensions();
+    for y in 0..height {
+        let mut intensity: u32 = 0;
+        for x in 0..width {
+            let pixel = img.get_pixel(x, y);
+            intensity = intensity + pixel[0] as u32 + pixel[1] as u32 + pixel[2] as u32;
+        }
+        if intensity > peak_intensity { peak_intensity = intensity }
+    }
+    guard.new_img =
+        if peak_intensity > INTENSITY_LIMIT {
+            let ratio = (INTENSITY_LIMIT as f64) / (peak_intensity as f64);
+            println!("Scaling intensity down to {}", ratio);
+            ImageBuffer::from_fn(width, height, |x, y| {
+                let p = img.get_pixel(x, y);
+                image::Rgb([(p[0] as f64 * ratio) as u8, (p[1] as f64 * ratio) as u8, (p[2] as f64 * ratio) as u8])
+            })
+        } else {
+            img.clone()
+        };
+    guard.transition_frames = transition_frames;
     guard.updated = true;
 }
 
-const INTENSITY_LIMIT: u32 = 61 * 255 * 3 / 4;
-
 fn animate(animation: Arc<Mutex<Animation>>) {
     'animator: loop {
-        let image = check_new_image(&animation);
+        let image = animation.lock().unwrap().new_img.clone();
         let (width, height) = image.dimensions();
         loop {
             for y in 0..height {
-                let guard = animation.lock().expect("Failed to acquire lock on animation");
-                if guard.updated { continue 'animator; };
+                let mut guard = animation.lock().expect("Failed to acquire lock on animation");
+                if guard.updated { guard.updated = false; continue 'animator; };
                 Mutex::unlock(guard);
 
                 let mut pixleds = Command::new("./rpi_pixleds");
@@ -107,53 +137,19 @@ fn animate(animation: Arc<Mutex<Animation>>) {
     }
 }
 
-fn check_new_image(animation: &Arc<Mutex<Animation>>) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
-    let mut guard = animation.lock().expect("Failed to acquire lock on animation");
-    let new_frame;
-    let frame = &guard.img;
-    if guard.updated {
-        let mut peak_intensity: u32 = 0;
-        let (width, height) = frame.dimensions();
-        for y in 0..height {
-            let mut intensity: u32 = 0;
-            for x in 0..width {
-                let pixel = frame.get_pixel(x, y);
-                intensity = intensity + pixel[0] as u32 + pixel[1] as u32 + pixel[2] as u32;
-            }
-            if intensity > peak_intensity { peak_intensity = intensity }
-        }
-        new_frame =
-            if peak_intensity > INTENSITY_LIMIT {
-                let ratio = (INTENSITY_LIMIT as f64) / (peak_intensity as f64);
-                println!("Scaling intensity down to {}", ratio);
-                ImageBuffer::from_fn(width, height, |x, y| {
-                    let p = frame.get_pixel(x, y);
-                    image::Rgb([(p[0] as f64 * ratio) as u8, (p[1] as f64 * ratio) as u8, (p[2] as f64 * ratio) as u8])
-                })
-            } else {
-                frame.clone()
-            };
-        guard.updated = false;
-    } else {
-        new_frame = frame.clone();
-    }
-    new_frame
-}
-
-#[derive(Clone)]
-// struct Animation(Arc<Mutex<RgbImage>>);
-struct Animation {
-    img: RgbImage,
-    updated: bool,
-}
-
 fn main() {
     println!("Patio Pi");
 
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
         image::Rgb([0u8, 0u8, 0u8])
     });
-    let animation = Arc::new(Mutex::new(Animation { img, updated: true }));
+    let animation = Arc::new(Mutex::new(
+        Animation {
+            old_img: img.clone(),
+            new_img: img,
+            transition_frames: 0,
+            updated: true })
+    );
 
     let animation1 = animation.clone();
     std::thread::spawn(move || {
@@ -171,7 +167,6 @@ fn main() {
 }
 
 // TODO: Fade between states
-// TODO: scan a pixel, animated
 
 /*
 TODO move patterns to Neo:
@@ -181,4 +176,6 @@ Weather during day
 Sunset animation
 Random patterns until midnight
 Meater mode
+Scan a pixel, animated
+Water blade illumination sequence
 */
