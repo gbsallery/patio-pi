@@ -76,7 +76,7 @@ struct Animation {
     updated: bool
 }
 
-const INTENSITY_LIMIT: u32 = 61 * 255 * 3 / 6;
+const INTENSITY_LIMIT: u32 = 61 * 255 * 3 / 16;
 
 fn update_animation(animation: State<Arc<Mutex<Animation>>>, img: ImageBuffer<Rgb<u8>, Vec<u8>>, transition_frames: u16) {
     let mut guard = animation.lock().unwrap();
@@ -167,15 +167,3 @@ fn main() {
 }
 
 // TODO: Fade between states
-
-/*
-TODO move patterns to Neo:
-Dawn sunrise
-Opening up 8am
-Weather during day
-Sunset animation
-Random patterns until midnight
-Meater mode
-Scan a pixel, animated
-Water blade illumination sequence
-*/
