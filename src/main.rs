@@ -26,7 +26,7 @@ fn off(animation: State<Arc<Mutex<Animation>>>) -> &'static str {
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
         image::Rgb([0u8, 0u8, 0u8])
     });
-    update_animation(animation, img, 100);
+    update_animation(animation, img, 100, false);
     "Off"
 }
 
@@ -35,7 +35,7 @@ fn on(animation: State<Arc<Mutex<Animation>>>) -> &'static str {
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
         image::Rgb([0xffu8, 0xffu8, 0xffu8])
     });
-    update_animation(animation, img, 100);
+    update_animation(animation, img, 100, false);
     "On"
 }
 
@@ -47,7 +47,7 @@ fn solid(rgb: &RawStr, animation: State<Arc<Mutex<Animation>>>) -> Status {
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(61, 1, |_x, _y| {
         image::Rgb([r, g, b])
     });
-    update_animation(animation, img, 100);
+    update_animation(animation, img, 100, false);
     Status::Ok
 }
 
@@ -55,16 +55,16 @@ fn solid(rgb: &RawStr, animation: State<Arc<Mutex<Animation>>>) -> Status {
 fn leds(animation: State<Arc<Mutex<Animation>>>) -> &'static str {
     let img = image::open("test.png").unwrap().to_rgb8();
 
-    update_animation(animation, img, 100);
+    update_animation(animation, img, 100, true);
     "Flash!"
 }
 
-#[post("/image", format = "any", data = "<data>")]
-fn image(data: Data, animation: State<Arc<Mutex<Animation>>>) -> &'static str {
+#[post("/image?<repeat>", format = "any", data = "<data>")]
+fn image(repeat: bool, data: Data, animation: State<Arc<Mutex<Animation>>>) -> &'static str {
     data.stream_to_file("/tmp/upload.png").map(|n| n.to_string()).unwrap();
 
     let img = image::open("/tmp/upload.png").unwrap().to_rgb8();
-    update_animation(animation, img, 100);
+    update_animation(animation, img, 100, repeat);
     "Uploaded"
 }
 
@@ -73,12 +73,13 @@ struct Animation {
     old_img: RgbImage,
     new_img: RgbImage,
     transition_frames: u16,
-    updated: bool
+    updated: bool,
+    repeat: bool
 }
 
 const INTENSITY_LIMIT: u32 = 61 * 255 * 3 / 16;
 
-fn update_animation(animation: State<Arc<Mutex<Animation>>>, img: ImageBuffer<Rgb<u8>, Vec<u8>>, transition_frames: u16) {
+fn update_animation(animation: State<Arc<Mutex<Animation>>>, img: ImageBuffer<Rgb<u8>, Vec<u8>>, transition_frames: u16, repeat: bool) {
     let mut guard = animation.lock().unwrap();
     guard.old_img = guard.new_img.clone();
     let mut peak_intensity: u32 = 0;
@@ -104,6 +105,7 @@ fn update_animation(animation: State<Arc<Mutex<Animation>>>, img: ImageBuffer<Rg
         };
     guard.transition_frames = transition_frames;
     guard.updated = true;
+    guard.repeat = repeat;
 }
 
 fn animate(animation: Arc<Mutex<Animation>>) {
@@ -111,8 +113,11 @@ fn animate(animation: Arc<Mutex<Animation>>) {
         let image = animation.lock().unwrap().new_img.clone();
         let (width, height) = image.dimensions();
         loop {
-            for y in 0..height {
+            let mut y = 0;
+            'inner: loop {
                 let mut guard = animation.lock().expect("Failed to acquire lock on animation");
+                if y < height || guard.repeat { y += 1 };
+                if y > height { break 'inner };
                 if guard.updated { guard.updated = false; continue 'animator; };
                 Mutex::unlock(guard);
 
@@ -121,7 +126,7 @@ fn animate(animation: Arc<Mutex<Animation>>) {
                 pixleds.arg("61");
                 let mut pixels = String::new();
                 for x in (0..width).rev() {
-                    let pixel = image.get_pixel(x, y);
+                    let pixel = image.get_pixel(x, y-1);
                     pixels = pixels + &*format!("{:02X}", pixel[0]);
                     pixels = pixels + &*format!("{:02X}", pixel[1]);
                     pixels = pixels + &*format!("{:02X}", pixel[2]);
@@ -148,7 +153,9 @@ fn main() {
             old_img: img.clone(),
             new_img: img,
             transition_frames: 0,
-            updated: true })
+            updated: true,
+            repeat: true
+        })
     );
 
     let animation1 = animation.clone();
@@ -166,4 +173,5 @@ fn main() {
         .launch();
 }
 
+// TODO: Allow some images to not loop
 // TODO: Fade between states
