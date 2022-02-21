@@ -135,7 +135,7 @@ fn animate(animation: Arc<Mutex<Animation>>) {
                 pixleds.arg(&pixels);
                 pixleds.output().expect("Failed to invoke rpi_pixleds");
 
-                let delay = time::Duration::from_millis(20);
+                let delay = time::Duration::from_millis(12);
                 thread::sleep(delay);
             }
         }
